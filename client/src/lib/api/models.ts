@@ -17,6 +17,8 @@ export type UpdateOwnerRequest = components['schemas']['UpdateOwnerRequest'];
 // Pet Types
 // =============================================================================
 export type PetResponse = components['schemas']['PetResponse'];
+export type PetPageResponse = components['schemas']['PetPageResponse'];
+export type OwnerSummaryResponse = components['schemas']['OwnerSummaryResponse'];
 export type PetSummaryResponse = components['schemas']['PetSummaryResponse'];
 export type CreatePetRequest = components['schemas']['CreatePetRequest'];
 export type UpdatePetRequest = components['schemas']['UpdatePetRequest'];

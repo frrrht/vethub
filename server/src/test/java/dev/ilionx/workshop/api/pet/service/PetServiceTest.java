@@ -9,6 +9,7 @@ import dev.ilionx.workshop.api.pet.model.request.UpdatePetRequest;
 import dev.ilionx.workshop.api.pet.repository.PetRepository;
 import dev.ilionx.workshop.api.pet.repository.PetTypeRepository;
 import dev.ilionx.workshop.support.UnitTest;
+import io.github.jframe.exception.core.BadRequestException;
 import io.github.jframe.exception.core.DataNotFoundException;
 
 import java.time.LocalDate;
@@ -19,6 +20,12 @@ import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.empty;
@@ -28,8 +35,10 @@ import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.notNullValue;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 
 @DisplayName("Unit Test - Pet Service")
@@ -270,45 +279,116 @@ class PetServiceTest extends UnitTest {
     }
 
     @Test
-    @DisplayName("Should return all pets when pets exist")
-    void shouldReturnAllPetsWhenPetsExist() {
-        // Given: Multiple pets exist in the repository
-        final Pet firstPet = aValidPet();
-        final Pet secondPet = aValidPet();
-        secondPet.setId(2);
-        secondPet.setName("Bella");
-        final Pet thirdPet = aValidPet();
-        thirdPet.setId(3);
-        thirdPet.setName("Max");
-        final List<Pet> expectedPets = List.of(firstPet, secondPet, thirdPet);
-        given(petRepository.findAll()).willReturn(expectedPets);
+    @DisplayName("Should return a page of 20 ordered by name then id when query is blank")
+    void shouldReturnPageOfTwentyOrderedByNameThenIdWhenQueryIsBlank() {
+        // Given: Pets exist and the query is blank
+        final Pet pet = aValidPet();
+        given(petRepository.findAll(any(Pageable.class))).willReturn(new PageImpl<>(List.of(pet)));
 
-        // When: Finding all pets
-        final List<Pet> actualPets = petService.findAll();
+        // When: Searching with a blank query
+        final Page<Pet> actualPets = petService.search("   ", 0);
 
-        // Then: All pets should be returned
-        assertThat(actualPets, is(notNullValue()));
-        assertThat(actualPets, hasSize(3));
-        assertThat(actualPets.get(0).getId(), is(equalTo(VALID_PET_ID)));
-        assertThat(actualPets.get(0).getName(), is(equalTo(VALID_PET_NAME)));
-        assertThat(actualPets.get(1).getId(), is(equalTo(2)));
-        assertThat(actualPets.get(1).getName(), is(equalTo("Bella")));
-        assertThat(actualPets.get(2).getId(), is(equalTo(3)));
-        assertThat(actualPets.get(2).getName(), is(equalTo("Max")));
+        // Then: The unfiltered page is requested with a fixed size and sort
+        assertThat(actualPets.getContent(), hasSize(1));
+        assertThat(actualPets.getContent().get(0).getName(), is(equalTo(VALID_PET_NAME)));
+        final Pageable pageable = capturedPageable(true);
+        assertThat(pageable.getPageNumber(), is(equalTo(0)));
+        assertThat(pageable.getPageSize(), is(equalTo(20)));
+        final List<Sort.Order> orders = pageable.getSort().toList();
+        assertThat(orders.get(0).getProperty(), is(equalTo("name")));
+        assertThat(orders.get(0).getDirection(), is(equalTo(Sort.Direction.ASC)));
+        assertThat(orders.get(1).getProperty(), is(equalTo("id")));
+        assertThat(orders.get(1).getDirection(), is(equalTo(Sort.Direction.ASC)));
+        verify(petRepository, never()).search(any(), any(Pageable.class));
     }
 
     @Test
-    @DisplayName("Should return empty list when no pets exist")
-    void shouldReturnEmptyListWhenNoPetsExist() {
-        // Given: No pets exist in the repository
-        given(petRepository.findAll()).willReturn(Collections.emptyList());
+    @DisplayName("Should search by literal text when query is present")
+    void shouldSearchByLiteralTextWhenQueryIsPresent() {
+        // Given: A query containing LIKE metacharacters
+        given(petRepository.search(eq("50\\%\\_a\\\\b"), any(Pageable.class)))
+            .willReturn(new PageImpl<>(List.of(aValidPet())));
 
-        // When: Finding all pets
-        final List<Pet> actualPets = petService.findAll();
+        // When: Searching with that query
+        final Page<Pet> actualPets = petService.search("  50%_a\\b  ", 2);
 
-        // Then: An empty list should be returned
-        assertThat(actualPets, is(notNullValue()));
-        assertThat(actualPets, is(empty()));
+        // Then: The repository receives the trimmed, escaped term and the requested page
+        assertThat(actualPets.getContent(), hasSize(1));
+        final Pageable pageable = capturedPageable(false);
+        assertThat(pageable.getPageNumber(), is(equalTo(2)));
+        assertThat(pageable.getPageSize(), is(equalTo(20)));
+        verify(petRepository, never()).findAll(any(Pageable.class));
+    }
+
+    @Test
+    @DisplayName("Should return unfiltered page when query is null")
+    void shouldReturnUnfilteredPageWhenQueryIsNull() {
+        // Given: Pets exist and no query was supplied
+        given(petRepository.findAll(any(Pageable.class))).willReturn(new PageImpl<>(List.of(aValidPet())));
+
+        // When: Searching with a null query
+        final Page<Pet> actualPets = petService.search(null, 0);
+
+        // Then: The unfiltered page is returned
+        assertThat(actualPets.getContent(), hasSize(1));
+        verify(petRepository).findAll(any(Pageable.class));
+        verify(petRepository, never()).search(any(), any(Pageable.class));
+    }
+
+    @Test
+    @DisplayName("Should return empty page when no pets match")
+    void shouldReturnEmptyPageWhenNoPetsMatch() {
+        // Given: The repository has no match for the query
+        given(petRepository.search(eq("missing"), any(Pageable.class)))
+            .willReturn(new PageImpl<>(Collections.emptyList()));
+
+        // When: Searching
+        final Page<Pet> actualPets = petService.search("missing", 0);
+
+        // Then: An empty page with total 0 is returned
+        assertThat(actualPets.getContent(), is(empty()));
+        assertThat(actualPets.getTotalElements(), is(equalTo(0L)));
+    }
+
+    @Test
+    @DisplayName("Should return empty content when page is past the end")
+    void shouldReturnEmptyContentWhenPageIsPastTheEnd() {
+        // Given: A later page has no rows but the total is known
+        final Pageable pastTheEnd = PageRequest.of(4, 20);
+        given(petRepository.findAll(any(Pageable.class)))
+            .willReturn(new PageImpl<>(Collections.emptyList(), pastTheEnd, 3));
+
+        // When: Requesting that page
+        final Page<Pet> actualPets = petService.search(null, 4);
+
+        // Then: Content is empty and the total is preserved
+        assertThat(actualPets.getContent(), is(empty()));
+        assertThat(actualPets.getTotalElements(), is(equalTo(3L)));
+        assertThat(actualPets.getTotalPages(), is(equalTo(1)));
+    }
+
+    @Test
+    @DisplayName("Should reject search when page is negative")
+    void shouldRejectSearchWhenPageIsNegative() {
+        // When & Then: A negative page is a bad request and does not touch the repository
+        final BadRequestException exception = assertThrows(
+            BadRequestException.class,
+            () -> petService.search(null, -1)
+        );
+
+        assertThat(exception.getMessage(), is(equalTo("page must be greater than or equal to 0")));
+        verify(petRepository, never()).findAll(any(Pageable.class));
+        verify(petRepository, never()).search(any(), any(Pageable.class));
+    }
+
+    private Pageable capturedPageable(final boolean unfiltered) {
+        final ArgumentCaptor<Pageable> captor = ArgumentCaptor.forClass(Pageable.class);
+        if (unfiltered) {
+            verify(petRepository).findAll(captor.capture());
+        } else {
+            verify(petRepository).search(any(), captor.capture());
+        }
+        return captor.getValue();
     }
 
     @Test

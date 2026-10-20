@@ -8,11 +8,16 @@ import dev.ilionx.workshop.api.pet.model.request.CreatePetRequest;
 import dev.ilionx.workshop.api.pet.model.request.UpdatePetRequest;
 import dev.ilionx.workshop.api.pet.repository.PetRepository;
 import dev.ilionx.workshop.api.pet.repository.PetTypeRepository;
+import io.github.jframe.exception.core.BadRequestException;
 import io.github.jframe.exception.core.DataNotFoundException;
 import lombok.RequiredArgsConstructor;
 
 import java.util.List;
 
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -26,6 +31,8 @@ import static dev.ilionx.workshop.common.exception.ApiErrorCode.PET_TYPE_NOT_FOU
 @Service
 @RequiredArgsConstructor
 public class PetService {
+
+    private static final int PAGE_SIZE = 20;
 
     private final PetRepository petRepository;
     private final PetTypeRepository petTypeRepository;
@@ -116,13 +123,40 @@ public class PetService {
     }
 
     /**
-     * Retrieves all pets in the system.
+     * Returns one page of the pet directory.
+     * A blank query returns every pet. Otherwise the query is a case-insensitive literal substring of the pet name,
+     * owner first name, owner last name, or type name.
      *
-     * @return list of all pets
+     * @param query raw search text; blank is treated as absent
+     * @param page  zero-based page index
+     * @return a page of at most 20 pets, ordered by name then id
      */
     @Transactional(readOnly = true)
-    public List<Pet> findAll() {
-        return petRepository.findAll();
+    public Page<Pet> search(final String query, final int page) {
+        if (page < 0) {
+            throw new BadRequestException("page must be greater than or equal to 0");
+        }
+        final Pageable pageable = PageRequest.of(
+            page,
+            PAGE_SIZE,
+            Sort.by(Sort.Order.asc("name"), Sort.Order.asc("id"))
+        );
+        if (query == null || query.isBlank()) {
+            return petRepository.findAll(pageable);
+        }
+        return petRepository.search(escapeLike(query.trim()), pageable);
+    }
+
+    /**
+     * Escapes LIKE metacharacters so the caller's text is matched literally.
+     *
+     * @param value trimmed search text
+     * @return the same text with {@code \}, {@code %} and {@code _} escaped
+     */
+    private static String escapeLike(final String value) {
+        return value.replace("\\", "\\\\")
+            .replace("%", "\\%")
+            .replace("_", "\\_");
     }
 
     /**

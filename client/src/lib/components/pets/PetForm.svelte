@@ -1,19 +1,19 @@
 <script lang="ts">
-	import type { components } from '$lib/types/api';
+	import type { OwnerResponse, PetTypeResponse } from '$lib/api/models';
 	import { Button } from '$lib/components/ui/button';
 	import { Input } from '$lib/components/ui/input';
 	import { Label } from '$lib/components/ui/label';
 	import * as Select from '$lib/components/ui/select';
 	import { Loader2 } from 'lucide-svelte';
 
-	type PetType = components['schemas']['PetTypeResponse'];
-
 	interface Props {
 		name?: string;
 		birthDate?: string;
 		typeId?: number;
-		petTypes: PetType[];
-		onSubmit: (data: { name: string; birthDate: string; typeId: number }) => Promise<void>;
+		ownerId?: number;
+		petTypes: PetTypeResponse[];
+		owners?: OwnerResponse[];
+		onSubmit: (data: { name: string; birthDate: string; typeId: number; ownerId?: number }) => Promise<void>;
 		submitLabel?: string;
 	}
 
@@ -21,7 +21,9 @@
 		name: initialName = '',
 		birthDate: initialBirthDate = '',
 		typeId: initialTypeId,
+		ownerId: initialOwnerId,
 		petTypes,
+		owners,
 		onSubmit,
 		submitLabel = 'Save'
 	}: Props = $props();
@@ -29,14 +31,16 @@
 	let name = $state(initialName);
 	let birthDate = $state(initialBirthDate);
 	let selectedTypeId = $state<number | undefined>(initialTypeId);
+	let selectedOwnerId = $state<number | undefined>(initialOwnerId);
 	let submitting = $state(false);
 
-	// Get selected type for display
 	let selectedType = $derived(petTypes.find((t) => t.id === selectedTypeId));
+	let selectedOwner = $derived(owners?.find((owner) => owner.id === selectedOwnerId));
+	let ownerRequired = $derived(owners != null);
 
 	async function handleSubmit(e: Event) {
 		e.preventDefault();
-		if (!selectedTypeId) {
+		if (!selectedTypeId || (ownerRequired && !selectedOwnerId)) {
 			return;
 		}
 		submitting = true;
@@ -44,7 +48,8 @@
 			await onSubmit({
 				name: name.trim(),
 				birthDate,
-				typeId: selectedTypeId
+				typeId: selectedTypeId,
+				ownerId: selectedOwnerId
 			});
 		} finally {
 			submitting = false;
@@ -53,8 +58,30 @@
 </script>
 
 <form onsubmit={handleSubmit} class="space-y-6">
+	{#if owners}
+		<div class="space-y-2">
+			<Label for="owner">Owner *</Label>
+			<Select.Root
+				type="single"
+				value={selectedOwnerId?.toString()}
+				onValueChange={(value) => (selectedOwnerId = value ? Number(value) : undefined)}
+			>
+				<Select.Trigger id="owner" class="w-full" disabled={submitting}>
+					{selectedOwner ? `${selectedOwner.firstName} ${selectedOwner.lastName}` : 'Select owner'}
+				</Select.Trigger>
+				<Select.Content>
+					{#each owners as owner (owner.id)}
+						<Select.Item value={owner.id.toString()}>
+							{owner.firstName} {owner.lastName}
+						</Select.Item>
+					{/each}
+				</Select.Content>
+			</Select.Root>
+		</div>
+	{/if}
+
 	<div class="space-y-2">
-		<Label for="name">Pet Name</Label>
+		<Label for="name">Pet Name *</Label>
 		<Input
 			id="name"
 			bind:value={name}
@@ -65,7 +92,7 @@
 	</div>
 
 	<div class="space-y-2">
-		<Label for="birthDate">Birth Date</Label>
+		<Label for="birthDate">Birth Date *</Label>
 		<Input
 			id="birthDate"
 			type="date"
@@ -76,14 +103,14 @@
 	</div>
 
 	<div class="space-y-2">
-		<Label for="petType">Pet Type</Label>
-		<Select.Root 
+		<Label for="petType">Pet Type *</Label>
+		<Select.Root
 			type="single"
 			value={selectedTypeId?.toString()}
-			onValueChange={(value) => selectedTypeId = value ? Number(value) : undefined}
+			onValueChange={(value) => (selectedTypeId = value ? Number(value) : undefined)}
 		>
 			<Select.Trigger id="petType" class="w-full" disabled={submitting}>
-				{selectedType?.name || 'Select a pet type'}
+				{selectedType?.name || 'Select type'}
 			</Select.Trigger>
 			<Select.Content>
 				{#each petTypes as petType (petType.id)}
@@ -99,7 +126,7 @@
 		<Button type="button" variant="outline" onclick={() => history.back()} disabled={submitting}>
 			Cancel
 		</Button>
-		<Button type="submit" disabled={submitting || !selectedTypeId}>
+		<Button type="submit" disabled={submitting || !selectedTypeId || (ownerRequired && !selectedOwnerId)}>
 			{#if submitting}
 				<Loader2 class="mr-2 h-4 w-4 animate-spin" />
 			{/if}

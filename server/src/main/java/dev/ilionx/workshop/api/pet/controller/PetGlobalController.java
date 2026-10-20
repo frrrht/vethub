@@ -4,14 +4,15 @@ import dev.ilionx.workshop.api.pet.model.Pet;
 import dev.ilionx.workshop.api.pet.model.mapper.PetMapper;
 import dev.ilionx.workshop.api.pet.model.request.CreatePetRequest;
 import dev.ilionx.workshop.api.pet.model.request.UpdatePetRequest;
+import dev.ilionx.workshop.api.pet.model.response.PetPageResponse;
 import dev.ilionx.workshop.api.pet.model.response.PetResponse;
 import dev.ilionx.workshop.api.pet.service.PetService;
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 
-import java.util.List;
-
+import org.springframework.data.domain.Page;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -38,16 +39,30 @@ public class PetGlobalController {
 
     @ResponseStatus(OK)
     @Operation(
-        summary = "Get all pets",
-        description = "Returns a list of all pets"
+        summary = "Search pets",
+        description = "Returns a page of pets matching an optional literal query. Page size is always 20."
     )
     @GetMapping(
         path = PETS,
         produces = APPLICATION_JSON_VALUE
     )
-    public ResponseEntity<List<PetResponse>> getAllPets() {
-        final List<Pet> pets = petService.findAll();
-        return ResponseEntity.status(OK).body(petMapper.toResponseList(pets));
+    public ResponseEntity<PetPageResponse> getAllPets(
+        @Parameter(description = "Case-insensitive literal substring of pet name, owner name, or type name")
+        @RequestParam(required = false) final String q,
+        @Parameter(description = "Zero-based page index")
+        @RequestParam(
+            required = false,
+            defaultValue = "0"
+        ) final int page
+    ) {
+        final Page<Pet> pets = petService.search(q, page);
+        final PetPageResponse response = new PetPageResponse()
+            .setContent(petMapper.toResponseList(pets.getContent()))
+            .setPage(pets.getNumber())
+            .setSize(pets.getSize())
+            .setTotalElements(pets.getTotalElements())
+            .setTotalPages(pets.getTotalPages());
+        return ResponseEntity.status(OK).body(response);
     }
 
     @ResponseStatus(OK)

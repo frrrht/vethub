@@ -50,6 +50,9 @@ public class PetResponse {
     )
     private Integer ownerId;
 
+    @Schema(description = "Summary of the pet's owner")
+    private OwnerSummaryResponse owner;
+
     @Schema(description = "The pet's visits")
     private List<VisitSummaryResponse> visits;
 }

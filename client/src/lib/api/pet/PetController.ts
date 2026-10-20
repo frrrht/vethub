@@ -7,17 +7,21 @@
 import { client } from '$lib/api/client';
 import type {
 	PetResponse,
+	PetPageResponse,
 	CreatePetRequest,
 	UpdatePetRequest
 } from '$lib/api/models';
 
 /**
- * Get all pets
+ * Search the pet directory. Page size is fixed by the server.
  */
-export async function getPets(): Promise<PetResponse[]> {
-	const { data, error } = await client.GET('/v1/pets');
+export async function getPets(query?: { q?: string; page?: number }): Promise<PetPageResponse> {
+	const { data, error } = await client.GET('/v1/pets', {
+		params: { query }
+	});
 	if (error) throw error;
-	return data ?? [];
+	if (!data) throw new Error('Failed to load pets');
+	return data;
 }
 
 /**
